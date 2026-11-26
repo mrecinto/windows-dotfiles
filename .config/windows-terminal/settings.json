@@ -1,0 +1,263 @@
+{
+    "$help": "https://aka.ms/terminal-documentation",
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "actions": [
+        {
+            "command": {
+                "action": "copy",
+                "singleLine": false
+            },
+            "id": "User.copy.644BA8F2"
+        },
+        {
+            "command": "paste",
+            "id": "User.paste"
+        },
+        {
+            "command": "find",
+            "id": "User.find"
+        },
+        {
+            "command": {
+                "action": "splitPane",
+                "split": "auto",
+                "splitMode": "duplicate"
+            },
+            "id": "User.splitPane.A6751878"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00021"
+            },
+            "id": "User.TmuxWindow1"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00022"
+            },
+            "id": "User.TmuxWindow2"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00023"
+            },
+            "id": "User.TmuxWindow3"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00024"
+            },
+            "id": "User.TmuxWindow4"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00025"
+            },
+            "id": "User.TmuxWindow5"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00026"
+            },
+            "id": "User.TmuxWindow6"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00027"
+            },
+            "id": "User.TmuxWindow7"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00028"
+            },
+            "id": "User.TmuxWindow8"
+        },
+        {
+            "command": {
+                "action": "sendInput",
+                "input": "\u00029"
+            },
+            "id": "User.TmuxWindow9"
+        }
+    ],
+    "copyFormatting": "none",
+    "copyOnSelect": false,
+    "defaultProfile": "{c6888b3c-8887-5e38-94cb-44b0ef963620}",
+    "keybindings": [
+        {
+            "id": "User.copy.644BA8F2",
+            "keys": "ctrl+c"
+        },
+        {
+            "id": "User.find",
+            "keys": "ctrl+shift+f"
+        },
+        {
+            "id": "User.paste",
+            "keys": "ctrl+shift+v"
+        },
+        {
+            "id": "User.splitPane.A6751878",
+            "keys": "alt+shift+d"
+        },
+        {
+            "id": "User.TmuxWindow1",
+            "keys": "ctrl+1"
+        },
+        {
+            "id": "User.TmuxWindow2",
+            "keys": "ctrl+2"
+        },
+        {
+            "id": "User.TmuxWindow3",
+            "keys": "ctrl+3"
+        },
+        {
+            "id": "User.TmuxWindow4",
+            "keys": "ctrl+4"
+        },
+        {
+            "id": "User.TmuxWindow5",
+            "keys": "ctrl+5"
+        },
+        {
+            "id": "User.TmuxWindow6",
+            "keys": "ctrl+6"
+        },
+        {
+            "id": "User.TmuxWindow7",
+            "keys": "ctrl+7"
+        },
+        {
+            "id": "User.TmuxWindow8",
+            "keys": "ctrl+8"
+        },
+        {
+            "id": "User.TmuxWindow9",
+            "keys": "ctrl+9"
+        }
+    ],
+    "newTabMenu": [
+        {
+            "type": "remainingProfiles"
+        }
+    ],
+    "profiles": {
+        "defaults": {
+            "padding": "10",
+            "colorScheme": {
+                "light": "Catppuccin Latte",
+                "dark": "Catppuccin Mocha"
+            },
+            "font": {
+                "face": "JetBrainsMono NFM",
+                "size": 14
+            }
+        },
+        "list": [
+            {
+                "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "guid": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+                "hidden": false,
+                "name": "Windows PowerShell"
+            },
+            {
+                "commandline": "%SystemRoot%\\System32\\cmd.exe",
+                "guid": "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}",
+                "hidden": false,
+                "name": "Command Prompt"
+            },
+            {
+                "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
+                "hidden": false,
+                "name": "Azure Cloud Shell",
+                "source": "Windows.Terminal.Azure"
+            },
+            {
+                "guid": "{22040932-312a-55c9-ad9d-1e8bafdb48c6}",
+                "hidden": false,
+                "name": "Developer Command Prompt for VS 2022",
+                "source": "Windows.Terminal.VisualStudio"
+            },
+            {
+                "guid": "{850f7ee1-b883-5cb8-a6a5-a0fcb57e551a}",
+                "hidden": false,
+                "name": "Developer PowerShell for VS 2022",
+                "source": "Windows.Terminal.VisualStudio"
+            },
+            {
+                "guid": "{51855cb2-8cce-5362-8f54-464b92b32386}",
+                "hidden": false,
+                "name": "Ubuntu",
+                "source": "CanonicalGroupLimited.Ubuntu_79rhkp1fndgsc"
+            },
+            {
+                "commandline": "C:\\Windows\\System32\\wsl.exe -d Ubuntu",
+                "startingDirectory": "//wsl.localhost/Ubuntu/home/matthew",
+                "guid": "{c6888b3c-8887-5e38-94cb-44b0ef963620}",
+                "hidden": false,
+                "name": "Ubuntu",
+                "source": "Microsoft.WSL"
+            }
+        ]
+    },
+    "schemes": [
+        {
+            "name": "Catppuccin Latte",
+            "cursorColor": "#DC8A78",
+            "selectionBackground": "#ACB0BE",
+            "background": "#EFF1F5",
+            "foreground": "#4C4F69",
+            "black": "#5C5F77",
+            "red": "#D20F39",
+            "green": "#40A02B",
+            "yellow": "#DF8E1D",
+            "blue": "#1E66F5",
+            "purple": "#EA76CB",
+            "cyan": "#179299",
+            "white": "#ACB0BE",
+            "brightBlack": "#ACB0BE",
+            "brightRed": "#D20F39",
+            "brightGreen": "#40A02B",
+            "brightYellow": "#DF8E1D",
+            "brightBlue": "#1E66F5",
+            "brightPurple": "#EA76CB",
+            "brightCyan": "#179299",
+            "brightWhite": "#BCC0CC"
+        },
+        {
+            "name": "Catppuccin Mocha",
+            "cursorColor": "#F5E0DC",
+            "selectionBackground": "#585B70",
+            "background": "#1E1E2E",
+            "foreground": "#CDD6F4",
+            "black": "#45475A",
+            "red": "#F38BA8",
+            "green": "#A6E3A1",
+            "yellow": "#F9E2AF",
+            "blue": "#89B4FA",
+            "purple": "#F5C2E7",
+            "cyan": "#94E2D5",
+            "white": "#BAC2DE",
+            "brightBlack": "#585B70",
+            "brightRed": "#F38BA8",
+            "brightGreen": "#A6E3A1",
+            "brightYellow": "#F9E2AF",
+            "brightBlue": "#89B4FA",
+            "brightPurple": "#F5C2E7",
+            "brightCyan": "#94E2D5",
+            "brightWhite": "#A6ADC8"
+        }
+    ],
+    "themes": [],
+    "theme": "system"
+}

@@ -1,0 +1,26 @@
+[opener]
+edit = [
+  { run = "nvim %s", block = true, desc = "Neovim" },
+]
+windows_default = [
+  { run = 'sh "${YAZI_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/yazi}/scripts/windows-open.sh" default %s', for = "linux", orphan = true, desc = "Windows default app" },
+  { run = 'powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "%APPDATA%\yazi\config\scripts\windows-open.ps1" default %s', for = "windows", orphan = true, desc = "Windows default app" },
+]
+xournalpp = [
+  { run = 'sh "${YAZI_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/yazi}/scripts/windows-open.sh" xournal %s1', for = "linux", orphan = true, desc = "Xournal++" },
+  { run = 'powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "%APPDATA%\yazi\config\scripts\windows-open.ps1" xournal %s1', for = "windows", orphan = true, desc = "Xournal++" },
+]
+
+[open]
+rules = [
+  { url = "*/", use = ["open", "reveal"] },
+  { url = "*.{pdf,xopp}", use = ["windows_default", "xournalpp"] },
+  { url = "*.{c,h,cc,cpp,cxx,hh,hpp,hxx,cs,java,kt,kts,scala,go,rs,swift,m,mm,zig,asm}", use = ["edit", "windows_default"] },
+  { url = "*.{py,pyw,pyi,rb,php,lua,pl,pm,r,jl,sh,bash,zsh,fish,ps1,psm1,bat,cmd}", use = ["edit", "windows_default"] },
+  { url = "*.{js,mjs,cjs,jsx,ts,mts,cts,tsx,vue,svelte,astro,html,htm,css,scss,sass,less}", use = ["edit", "windows_default"] },
+  { url = "*.{md,markdown,mdx,rst,typ,tex,sql,json,jsonc,json5,yaml,yml,toml,xml,ini,conf,proto,graphql,gql}", use = ["edit", "windows_default"] },
+  { url = "{Makefile,GNUmakefile,Dockerfile,Containerfile,Justfile,.gitignore,.gitattributes,.editorconfig,.env,.env.*}", use = ["edit", "windows_default"] },
+  { mime = "{application/x-shellscript,application/x-typst,text/x-*}", use = ["edit", "windows_default"] },
+  { mime = "{text/*,inode/x-empty}", use = ["windows_default", "edit"] },
+  { url = "*", use = "windows_default" },
+]

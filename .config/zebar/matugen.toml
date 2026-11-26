@@ -1,0 +1,6 @@
+[config]
+[config.wallpaper]
+command = "true"
+set = false
+
+[templates]

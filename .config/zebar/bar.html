@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wallpaper Bar</title>
+    <link rel="stylesheet" href="./bar.css">
+  </head>
+  <body>
+    <main class="bar">
+      <div class="left">
+        <nav id="workspaces" aria-label="Numbered workspaces"></nav>
+        <button id="special" aria-label="Special workspaces" aria-expanded="false" aria-controls="special-workspaces">✦</button>
+        <nav id="special-workspaces" aria-label="Special workspaces" hidden></nav>
+      </div>
+      <div id="focused-window"></div>
+      <div class="right">
+        <span id="battery" hidden></span>
+        <span id="network" hidden></span>
+        <span id="volume" hidden></span>
+        <time id="clock"></time>
+      </div>
+    </main>
+    <script type="module" src="./bar.js"></script>
+  </body>
+</html>
