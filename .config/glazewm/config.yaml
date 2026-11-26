@@ -148,6 +148,9 @@ window_rules:
       # Keep VoiceMeeter Banana at its native size.
       - window_process: { equals: 'voicemeeterpro' }
 
+      # Let these games manage their own window size and fullscreen mode.
+      - window_process: { regex: '(?i)^(cs2|Cyberpunk2077|deadlock|eldenring|GTA5_Enhanced|Overwatch|RDR2)$' }
+
       # Ignores picture-in-picture windows for browsers.
       - window_title: { regex: '[Pp]icture.in.[Pp]icture' }
         window_class: { regex: 'Chrome_WidgetWin_1|MozillaDialogClass' }
@@ -200,6 +203,11 @@ keybindings:
     bindings: ['alt+shift+q']
   - commands: ['wm-reload-config']
     bindings: ['alt+shift+r']
+  # Pause before launching a game to release GlazeWM's global shortcuts.
+  - commands: ['wm-toggle-pause']
+    bindings: ['alt+shift+p']
+  - commands: ['toggle-fullscreen']
+    bindings: ['alt+f']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --recent-on-monitor']
     bindings: ['alt+tab']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe']

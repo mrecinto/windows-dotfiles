@@ -148,7 +148,7 @@ internal static class CycleWindows
         if (currentName == name)
         {
             var origin = File.Exists(statePath) ? File.ReadAllText(statePath) : null;
-            if (!IsNumberedWorkspace(origin) || monitors.Any(monitor => monitor != target &&
+            if (origin == name || !IsReturnWorkspace(origin) || monitors.Any(monitor => monitor != target &&
                 ((object[])monitor["children"]).Cast<Dictionary<string, object>>()
                     .Any(workspace => Equals(workspace["name"], origin))))
             {
@@ -156,7 +156,7 @@ internal static class CycleWindows
                     .ToDictionary(workspace => (string)workspace["id"], workspace => (string)workspace["name"]);
                 origin = ((object[])target["childFocusOrder"]).Cast<string>()
                     .Where(workspaceNames.ContainsKey).Select(id => workspaceNames[id])
-                    .FirstOrDefault(IsNumberedWorkspace);
+                    .FirstOrDefault(workspace => workspace != name && IsReturnWorkspace(workspace));
             }
             if (origin != null)
                 Request(socket, token, "command focus --workspace " + origin);
@@ -178,7 +178,7 @@ internal static class CycleWindows
         }
 
         Request(socket, token, "command focus --workspace " + name);
-        if (IsNumberedWorkspace(currentName))
+        if (IsReturnWorkspace(currentName))
         {
             Directory.CreateDirectory(stateDirectory);
             File.WriteAllText(statePath, currentName);
@@ -213,10 +213,11 @@ internal static class CycleWindows
         return null;
     }
 
-    private static bool IsNumberedWorkspace(string name)
+    private static bool IsReturnWorkspace(string name)
     {
         int number;
-        return int.TryParse(name, out number) && number >= 1 && number <= 10 && name == number.ToString();
+        return name == "A" ||
+            (int.TryParse(name, out number) && number >= 1 && number <= 10 && name == number.ToString());
     }
 
     private static string DirectionToMonitor(Dictionary<string, object>[] monitors,

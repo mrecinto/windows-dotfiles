@@ -142,7 +142,40 @@ async function followVirtualDesktop() {
   const watcher = await zebar.shellSpawn(
     'C:\\Users\\Matthew\\Personal\\dotfiles\\.config\\zebar\\watch-virtual-desktop.exe',
   );
-  window.addEventListener('pagehide', () => void watcher.kill().catch(() => {}), { once: true });
+  let previousWorkspace = providers.outputMap.glazewm?.focusedWorkspace?.id;
+  let pendingFocus;
+  function hasOpenWindow(container) {
+    if (container.type === 'window') return container.state?.type !== 'minimized';
+    return (container.children ?? []).some(hasOpenWindow);
+  }
+
+  providers.onOutput(() => {
+    const state = providers.outputMap.glazewm;
+    const workspace = state?.focusedWorkspace;
+    if (!workspace || workspace.id === previousWorkspace) return;
+
+    const hadWorkspace = Boolean(previousWorkspace);
+    previousWorkspace = workspace.id;
+    window.clearTimeout(pendingFocus);
+    if (!hadWorkspace || state.currentMonitor?.id !== state.focusedMonitor?.id) return;
+
+    // Wait for GlazeWM to finish showing the destination workspace's windows.
+    pendingFocus = window.setTimeout(() => {
+      const latest = providers.outputMap.glazewm;
+      const monitor = latest?.focusedMonitor;
+      const target = latest?.focusedWorkspace;
+      if (!monitor || target?.id !== workspace.id || hasOpenWindow(target)) return;
+      const x = Math.round(monitor.x + monitor.width / 2);
+      const y = Math.round(monitor.y + monitor.height / 2);
+      Promise.resolve(watcher.write(`focus ${x} ${y}\n`))
+        .catch(error => console.warn('Fullscreen focus:', error));
+    }, 120);
+  });
+
+  window.addEventListener('pagehide', () => {
+    window.clearTimeout(pendingFocus);
+    void watcher.kill().catch(() => {});
+  }, { once: true });
 }
 
 providers.onOutput(render);
