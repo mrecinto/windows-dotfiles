@@ -33,9 +33,11 @@ function makeButton(name, parent, label = name) {
   button.textContent = label;
   button.setAttribute('aria-label', `Workspace ${name}`);
   button.addEventListener('click', () => {
-    const command = special.includes(name)
-      ? `shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --special ${name}`
-      : `focus --workspace ${name}`;
+    let command = `focus --workspace ${name}`;
+    if (name === 'G' || special.includes(name)) {
+      const action = name === 'G' ? '--bring' : '--special';
+      command = `shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe ${action} ${name}`;
+    }
     providers.outputMap.glazewm?.runCommand(command);
     showSpecial(false);
   });

@@ -14,6 +14,7 @@ internal static class WatchVirtualDesktop
 {
     private const string DesktopKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops";
     private const string BarTitle = "Zebar - wallpaper-bar / bar";
+    private const string SpecialOverlayTitle = "GlazeWM Scratchpad Backdrop";
     private const int NotifyLastSet = 4;
     private const uint SlideFlags = 0x215; // No activation, resize, or z-order change.
     [StructLayout(LayoutKind.Sequential)]
@@ -30,6 +31,9 @@ internal static class WatchVirtualDesktop
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string className, string title);
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
@@ -170,21 +174,29 @@ internal static class WatchVirtualDesktop
             Math.Abs(bounds.Bottom - info.Bounds.Bottom) <= tolerance;
     }
 
-    private static IntPtr FullscreenMonitor(IntPtr foreground)
+    private static IntPtr SpecialOverlayMonitor()
+    {
+        var overlay = FindWindow(null, SpecialOverlayTitle);
+        return overlay != IntPtr.Zero && IsWindowVisible(overlay)
+            ? MonitorFromWindow(overlay, 0) : IntPtr.Zero;
+    }
+
+    private static IntPtr FullscreenMonitor(IntPtr foreground, IntPtr overlayMonitor)
     {
         Rect bounds;
         if (IsVisibleAppWindow(foreground) && TryGetVisibleBounds(foreground, out bounds))
         {
             var monitor = MonitorFromWindow(foreground, 0);
-            return FillsMonitor(bounds, monitor) ? monitor : IntPtr.Zero;
+            return monitor != overlayMonitor && FillsMonitor(bounds, monitor) ? monitor : IntPtr.Zero;
         }
 
         IntPtr fullscreenMonitor;
-        FindExposedFullscreen(IntPtr.Zero, out fullscreenMonitor);
+        FindExposedFullscreen(IntPtr.Zero, overlayMonitor, out fullscreenMonitor);
         return fullscreenMonitor;
     }
 
-    private static IntPtr FindExposedFullscreen(IntPtr targetMonitor, out IntPtr fullscreenMonitor)
+    private static IntPtr FindExposedFullscreen(IntPtr targetMonitor, IntPtr overlayMonitor,
+        out IntPtr fullscreenMonitor)
     {
         // Minimizing a launcher can expose an app without passing foreground focus to it.
         // Only consider the first visible app on each monitor, in stacking order.
@@ -200,7 +212,7 @@ internal static class WatchVirtualDesktop
             if (!IsVisibleAppWindow(window) || !TryGetVisibleBounds(window, out bounds)) continue;
             var monitor = MonitorFromWindow(window, 0);
             if (targetMonitor != IntPtr.Zero && monitor != targetMonitor) continue;
-            if (monitor == IntPtr.Zero || coveredMonitors.Contains(monitor)) continue;
+            if (monitor == IntPtr.Zero || monitor == overlayMonitor || coveredMonitors.Contains(monitor)) continue;
             if (FillsMonitor(bounds, monitor))
             {
                 fullscreenMonitor = monitor;
@@ -227,9 +239,10 @@ internal static class WatchVirtualDesktop
                 continue;
 
             var monitor = MonitorFromPoint(point, 0);
-            if (monitor == IntPtr.Zero) continue;
+            var overlayMonitor = SpecialOverlayMonitor();
+            if (monitor == IntPtr.Zero || monitor == overlayMonitor) continue;
             IntPtr fullscreenMonitor;
-            var window = FindExposedFullscreen(monitor, out fullscreenMonitor);
+            var window = FindExposedFullscreen(monitor, overlayMonitor, out fullscreenMonitor);
             if (window != IntPtr.Zero && window != GetForegroundWindow())
                 SetForegroundWindow(window);
         }
@@ -312,6 +325,7 @@ internal static class WatchVirtualDesktop
 
             bool? previousDesktop = null;
             var previousMonitor = IntPtr.Zero;
+            var previousOverlayMonitor = IntPtr.Zero;
             var handles = new WaitHandle[] { changed, closed };
             bool register = true;
             while (true)
@@ -320,8 +334,9 @@ internal static class WatchVirtualDesktop
                     changed.SafeWaitHandle, true) != 0) return 1;
 
                 var foreground = GetForegroundWindow();
-                var fullscreenMonitor = FullscreenMonitor(foreground);
-                if (register || fullscreenMonitor != previousMonitor)
+                var overlayMonitor = SpecialOverlayMonitor();
+                var fullscreenMonitor = FullscreenMonitor(foreground, overlayMonitor);
+                if (register || fullscreenMonitor != previousMonitor || overlayMonitor != previousOverlayMonitor)
                 {
                     var desktops = key.GetValue("VirtualDesktopIDs") as byte[];
                     var current = key.GetValue("CurrentVirtualDesktop") as byte[];
@@ -335,13 +350,16 @@ internal static class WatchVirtualDesktop
                     try
                     {
                         // Another widget may have completed the same transition while we waited.
-                        fullscreenMonitor = FullscreenMonitor(GetForegroundWindow());
+                        overlayMonitor = SpecialOverlayMonitor();
+                        fullscreenMonitor = FullscreenMonitor(GetForegroundWindow(), overlayMonitor);
                         SetBarsVisible(desktopVisible, fullscreenMonitor,
-                            previousDesktop == desktopVisible && fullscreenMonitor != previousMonitor);
+                            previousDesktop == desktopVisible && fullscreenMonitor != previousMonitor &&
+                            overlayMonitor == previousOverlayMonitor);
                     }
                     finally { barLock.ReleaseMutex(); }
                     previousDesktop = desktopVisible;
                     previousMonitor = fullscreenMonitor;
+                    previousOverlayMonitor = overlayMonitor;
                 }
 
                 int signal = WaitHandle.WaitAny(handles, 70);

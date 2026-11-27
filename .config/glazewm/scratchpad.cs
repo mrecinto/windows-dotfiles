@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Net.WebSockets;
@@ -23,6 +25,8 @@ internal static partial class CycleWindows
     private const int RecentWorkspaceMessage = 0x8052;
     private const int SwitchSpecialWorkspaceMessage = 0x8051;
     private const int CloseSpecialWorkspaceMessage = 0x8053;
+    private const int GamingClickMessage = 0x8054;
+    private const int GamingRefocusMessage = 0x8055;
 
     [DllImport("user32.dll")]
     private static extern bool SetProcessDpiAwarenessContext(IntPtr context);
@@ -44,6 +48,102 @@ internal static partial class CycleWindows
     [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr window);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LayeredBitmapInfo
+    {
+        public uint HeaderSize;
+        public int Width;
+        public int Height;
+        public ushort Planes;
+        public ushort BitCount;
+        public uint Compression;
+        public uint ImageSize;
+        public int XPixelsPerMeter;
+        public int YPixelsPerMeter;
+        public uint ColorsUsed;
+        public uint ColorsImportant;
+        public uint ColorTableEntry;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct LayeredWindowBlend
+    {
+        public byte Operation;
+        public byte Flags;
+        public byte Opacity;
+        public byte AlphaFormat;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UpdateLayeredWindow(IntPtr window, IntPtr screen, ref Point position,
+        ref Point size, IntPtr source, ref Point sourcePosition, uint colorKey,
+        ref LayeredWindowBlend blend, uint flags);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern IntPtr CreateCompatibleDC(IntPtr source);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern IntPtr CreateDIBSection(IntPtr dc, ref LayeredBitmapInfo info, uint usage,
+        out IntPtr pixels, IntPtr section, uint offset);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr SelectObject(IntPtr dc, IntPtr item);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr item);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteDC(IntPtr dc);
+
+    [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
+    private static extern void CopyBitmapPixels(IntPtr destination, IntPtr source, UIntPtr bytes);
+
+    private static void PresentLayeredBitmap(IntPtr window, Rectangle bounds, Bitmap bitmap)
+    {
+        var dc = CreateCompatibleDC(IntPtr.Zero);
+        if (dc == IntPtr.Zero) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+
+        var dib = IntPtr.Zero;
+        var previous = IntPtr.Zero;
+        try
+        {
+            var info = new LayeredBitmapInfo { HeaderSize = 40, Width = bitmap.Width, Height = -bitmap.Height,
+                Planes = 1, BitCount = 32 };
+            IntPtr pixels;
+            dib = CreateDIBSection(dc, ref info, 0, out pixels, IntPtr.Zero, 0);
+            if (dib == IntPtr.Zero) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+
+            var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+                ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
+            try
+            {
+                var rowBytes = bitmap.Width * 4;
+                for (var y = 0; y < bitmap.Height; y++)
+                    CopyBitmapPixels(IntPtr.Add(pixels, y * rowBytes), IntPtr.Add(data.Scan0, y * data.Stride),
+                        new UIntPtr((uint)rowBytes));
+            }
+            finally { bitmap.UnlockBits(data); }
+
+            previous = SelectObject(dc, dib);
+            if (previous == IntPtr.Zero || previous == new IntPtr(-1))
+                throw new InvalidOperationException("Could not select the layered backdrop bitmap.");
+
+            var position = new Point { X = bounds.X, Y = bounds.Y };
+            var size = new Point { X = bitmap.Width, Y = bitmap.Height };
+            var sourcePosition = new Point();
+            var blend = new LayeredWindowBlend { Opacity = 255, AlphaFormat = 1 };
+            if (!UpdateLayeredWindow(window, IntPtr.Zero, ref position, ref size, dc, ref sourcePosition,
+                0, ref blend, 2)) // ULW_ALPHA
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+        finally
+        {
+            if (previous != IntPtr.Zero && previous != new IntPtr(-1)) SelectObject(dc, previous);
+            if (dib != IntPtr.Zero) DeleteObject(dib);
+            DeleteDC(dc);
+        }
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowStyle(IntPtr window, int index);
 
@@ -56,10 +156,10 @@ internal static partial class CycleWindows
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
 
-    private delegate IntPtr KeyboardHook(int code, IntPtr message, IntPtr key);
+    private delegate IntPtr InputHook(int code, IntPtr message, IntPtr input);
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWindowsHookEx(int type, KeyboardHook callback, IntPtr module, uint threadId);
+    private static extern IntPtr SetWindowsHookEx(int type, InputHook callback, IntPtr module, uint threadId);
 
     [DllImport("user32.dll")]
     private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr key);
@@ -101,13 +201,13 @@ internal static partial class CycleWindows
                     var wait = ThreadPool.RegisterWaitForSingleObject(stop,
                         (state, timedOut) => window.BeginInvoke(new Action(Application.ExitThread)),
                         null, Timeout.Infinite, true);
-                    var availability = Task.Run(() => window.WatchRecentWorkspaceAvailability(lifetime.Token));
+                    var workspaceState = Task.Run(() => window.WatchWorkspaceState(lifetime.Token));
                     try { Application.Run(); }
                     finally
                     {
                         wait.Unregister(null);
                         lifetime.Cancel();
-                        availability.GetAwaiter().GetResult();
+                        workspaceState.GetAwaiter().GetResult();
                     }
                 }
                 return 0;
@@ -170,15 +270,23 @@ internal static partial class CycleWindows
             new IntPtr(name[0]), IntPtr.Zero);
     }
 
+    private static bool RequestGamingRefocus()
+    {
+        var host = FindWindow(null, HotkeysWindowTitle);
+        return host != IntPtr.Zero && PostMessage(host, GamingRefocusMessage, IntPtr.Zero, IntPtr.Zero);
+    }
+
     private sealed class ScratchpadHotkeys : Form
     {
         // Keep these letters available for the matching Alt bindings in config.yaml.
         private const string GlazeWmAltLetters = "EFHJKLQV";
         private readonly List<int> registered = new List<int>();
         private readonly object recentWorkspaceLock = new object();
-        private readonly KeyboardHook recentWorkspaceHook;
+        private readonly InputHook recentWorkspaceHook;
+        private readonly InputHook gamingClickHook;
         private readonly IntPtr hook;
-        private volatile bool recentWorkspaceEnabled;
+        private readonly IntPtr mouseHook;
+        private volatile bool workspaceInputEnabled;
         private bool capturedTab;
 
         public ScratchpadHotkeys()
@@ -202,6 +310,10 @@ internal static partial class CycleWindows
             hook = SetWindowsHookEx(13, recentWorkspaceHook, GetModuleHandle(null), 0);
             if (hook == IntPtr.Zero)
                 LogScratchpadError(new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+            gamingClickHook = OnMouseInput;
+            mouseHook = SetWindowsHookEx(14, gamingClickHook, GetModuleHandle(null), 0);
+            if (mouseHook == IntPtr.Zero)
+                LogScratchpadError(new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
         }
 
         private IntPtr OnKeyboardInput(int code, IntPtr message, IntPtr key)
@@ -216,7 +328,7 @@ internal static partial class CycleWindows
                     if ((flags & keyUp) != 0) capturedTab = false;
                     return new IntPtr(1);
                 }
-                if (recentWorkspaceEnabled && (flags & (altDown | keyUp)) == altDown &&
+                if (workspaceInputEnabled && (flags & (altDown | keyUp)) == altDown &&
                     GetAsyncKeyState(0x10) >= 0 && GetAsyncKeyState(0x11) >= 0 &&
                     GetAsyncKeyState(0x5B) >= 0 && GetAsyncKeyState(0x5C) >= 0 &&
                     PostMessage(Handle, RecentWorkspaceMessage, IntPtr.Zero, IntPtr.Zero))
@@ -228,42 +340,73 @@ internal static partial class CycleWindows
             return CallNextHookEx(IntPtr.Zero, code, message, key);
         }
 
-        public async Task WatchRecentWorkspaceAvailability(CancellationToken token)
+        private IntPtr OnMouseInput(int code, IntPtr message, IntPtr input)
         {
-            if (hook == IntPtr.Zero) return;
-            var buffer = new ArraySegment<byte>(new byte[4096]);
+            const int leftButtonDown = 0x0201;
+            if (code >= 0 && workspaceInputEnabled && message.ToInt32() == leftButtonDown)
+            {
+                var position = new Point { X = Marshal.ReadInt32(input), Y = Marshal.ReadInt32(input, 4) };
+                var window = GetAncestor(WindowFromPoint(position), 2); // GA_ROOT
+                if (window != IntPtr.Zero)
+                    PostMessage(Handle, GamingClickMessage, window, IntPtr.Zero);
+            }
+            return CallNextHookEx(IntPtr.Zero, code, message, input);
+        }
+
+        public async Task WatchWorkspaceState(CancellationToken token)
+        {
             while (!token.IsCancellationRequested)
             {
                 try
                 {
                     using (var events = new ClientWebSocket())
+                    using (var queries = new ClientWebSocket())
                     {
+                        var endpoint = new Uri("ws://127.0.0.1:6123");
+                        bool paused;
+                        bool gamingFocused;
                         using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
                         {
                             timeout.CancelAfter(TimeSpan.FromSeconds(3));
-                            await events.ConnectAsync(new Uri("ws://127.0.0.1:6123"), timeout.Token)
-                                .ConfigureAwait(false);
-                            Request(events, timeout.Token, "sub -e pause_changed application_exiting");
+                            await events.ConnectAsync(endpoint, timeout.Token).ConfigureAwait(false);
+                            Request(events, timeout.Token, "sub -e pause_changed application_exiting focus_changed");
+                            await queries.ConnectAsync(endpoint, timeout.Token).ConfigureAwait(false);
+                            paused = Equals(Request(queries, timeout.Token, "query paused")["data"], true);
+                            workspaceInputEnabled = !paused;
+                            gamingFocused = !paused && FocusedGamingMonitor(queries, timeout.Token) != null;
                         }
 
                         while (!token.IsCancellationRequested)
                         {
-                            WithScratchpadConnection((socket, queryToken) =>
-                                recentWorkspaceEnabled = Equals(Request(socket, queryToken, "query paused")["data"], false));
-                            WebSocketReceiveResult message;
-                            do
+                            var message = await ReadGlazeMessage(events, token).ConfigureAwait(false);
+                            if (message == null) break;
+                            var data = message["data"] as Dictionary<string, object>;
+                            if (data == null || Equals(data["eventType"], "application_exiting")) break;
+                            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
                             {
-                                message = await events.ReceiveAsync(buffer, token).ConfigureAwait(false);
+                                timeout.CancelAfter(TimeSpan.FromSeconds(3));
+                                if (Equals(data["eventType"], "pause_changed"))
+                                {
+                                    paused = Equals(Request(queries, timeout.Token, "query paused")["data"], true);
+                                    workspaceInputEnabled = !paused;
+                                    gamingFocused = !paused && FocusedGamingMonitor(queries, timeout.Token) != null;
+                                }
+                                else if (!paused && Equals(data["eventType"], "focus_changed"))
+                                {
+                                    var gamingMonitor = FocusedGamingMonitor(queries, timeout.Token);
+                                    if (!gamingFocused && gamingMonitor != null)
+                                        FocusGameOnMonitor(gamingMonitor, queries, timeout.Token);
+                                    gamingFocused = gamingMonitor != null;
+                                }
                             }
-                            while (!message.EndOfMessage);
-                            if (message.MessageType == WebSocketMessageType.Close) break;
                         }
                     }
                 }
                 catch (WebSocketException) { }
                 catch (InvalidOperationException) { }
                 catch (OperationCanceledException) { }
-                finally { recentWorkspaceEnabled = false; }
+                catch (IOException) { }
+                finally { workspaceInputEnabled = false; }
 
                 try { await Task.Delay(500, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
@@ -285,13 +428,30 @@ internal static partial class CycleWindows
             }
             if (message.Msg == RecentWorkspaceMessage)
             {
-                if (!recentWorkspaceEnabled || CloseBackdropOnForegroundMonitor()) return;
+                if (!workspaceInputEnabled || CloseBackdropOnForegroundMonitor()) return;
                 ThreadPool.QueueUserWorkItem(state =>
                 {
                     lock (recentWorkspaceLock)
                     {
-                        if (recentWorkspaceEnabled) SwitchRecentWorkspace();
+                        if (workspaceInputEnabled) SwitchRecentWorkspace();
                     }
+                });
+                return;
+            }
+            if (message.Msg == GamingClickMessage)
+            {
+                var window = message.WParam;
+                ThreadPool.QueueUserWorkItem(state =>
+                {
+                    if (workspaceInputEnabled) FocusGamingWorkspaceOnClick(window);
+                });
+                return;
+            }
+            if (message.Msg == GamingRefocusMessage)
+            {
+                ThreadPool.QueueUserWorkItem(state =>
+                {
+                    if (workspaceInputEnabled) RefocusGamingWorkspace();
                 });
                 return;
             }
@@ -301,6 +461,7 @@ internal static partial class CycleWindows
         protected override void OnHandleDestroyed(EventArgs e)
         {
             if (hook != IntPtr.Zero) UnhookWindowsHookEx(hook);
+            if (mouseHook != IntPtr.Zero) UnhookWindowsHookEx(mouseHook);
             foreach (var id in registered) UnregisterHotKey(Handle, id);
             registered.Clear();
             base.OnHandleDestroyed(e);
@@ -414,8 +575,13 @@ internal static partial class CycleWindows
 
                     var bounds = new Rectangle(Convert.ToInt32(monitor["x"]), Convert.ToInt32(monitor["y"]),
                         Convert.ToInt32(monitor["width"]), Convert.ToInt32(monitor["height"]));
-                    backdrop = new ScratchpadBackdrop(bounds);
+                    var game = FindLiveGamingUnderlay(socket, token, monitors, monitor);
+                    var liveBackdrop = game != IntPtr.Zero;
+                    var frames = liveBackdrop ? VisibleWorkspaceFrames(displayed, game, bounds) : new Rectangle[0];
+                    var display = new IntPtr(Convert.ToInt64(monitor["handle"]));
+                    backdrop = new ScratchpadBackdrop(bounds, liveBackdrop, display, frames);
                     backdrop.TrackScratchpadWindows(name, windows);
+                    backdrop.PresentWorkspaceBackdrop();
                     backdrop.Show();
 
                     Request(socket, token, "command focus --workspace " + name);
@@ -713,6 +879,10 @@ internal static partial class CycleWindows
     private sealed class ScratchpadBackdrop : Form
     {
         private readonly Bitmap snapshot;
+        private readonly bool compositeBackdrop;
+        private readonly IntPtr display;
+        private IntPtr zebar;
+        private bool zebarWasTopmost;
         private readonly System.Windows.Forms.Timer restack = new System.Windows.Forms.Timer { Interval = 40 };
         private string workspaceName;
         private IntPtr[] scratchWindows = new IntPtr[0];
@@ -721,8 +891,10 @@ internal static partial class CycleWindows
         public event Action<string> WorkspaceRequested;
         public event Action DismissRequested;
 
-        public ScratchpadBackdrop(Rectangle bounds)
+        public ScratchpadBackdrop(Rectangle bounds, bool liveBackdrop, IntPtr display, Rectangle[] workspaceFrames)
         {
+            compositeBackdrop = liveBackdrop;
+            this.display = display;
             FormBorderStyle = FormBorderStyle.None;
             Text = BackdropTitle;
             StartPosition = FormStartPosition.Manual;
@@ -730,20 +902,39 @@ internal static partial class CycleWindows
             TopMost = true;
             Bounds = bounds;
             BackColor = Color.Black;
-            snapshot = new Bitmap(bounds.Width, bounds.Height);
-            try
+            FindZebar();
+            if (compositeBackdrop)
             {
-                using (var graphics = Graphics.FromImage(snapshot))
-                {
-                    graphics.CopyFromScreen(bounds.Location, System.Drawing.Point.Empty, bounds.Size);
-                    using (var dim = new SolidBrush(Color.FromArgb(140, Color.Black)))
-                        graphics.FillRectangle(dim, 0, 0, bounds.Width, bounds.Height);
-                }
+                snapshot = CaptureWorkspaceBackdrop(bounds, workspaceFrames);
             }
-            catch
+            else
             {
-                snapshot.Dispose();
-                throw;
+                snapshot = new Bitmap(bounds.Width, bounds.Height);
+                try
+                {
+                    using (var graphics = Graphics.FromImage(snapshot))
+                    {
+                        graphics.CopyFromScreen(bounds.Location, System.Drawing.Point.Empty, bounds.Size);
+                        using (var dim = new SolidBrush(Color.FromArgb(140, Color.Black)))
+                            graphics.FillRectangle(dim, 0, 0, bounds.Width, bounds.Height);
+                        Rect barBounds;
+                        if (zebar != IntPtr.Zero && GetWindowRect(zebar, out barBounds))
+                        {
+                            var bar = Rectangle.Intersect(bounds, Rectangle.FromLTRB(
+                                barBounds.Left, barBounds.Top, barBounds.Right, barBounds.Bottom));
+                            if (bar.Width > 0 && bar.Height > 0)
+                            {
+                                bar.Offset(-bounds.X, -bounds.Y);
+                                graphics.FillRectangle(Brushes.Black, bar);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    snapshot.Dispose();
+                    throw;
+                }
             }
             DoubleBuffered = true;
             restack.Tick += (sender, args) =>
@@ -751,6 +942,70 @@ internal static partial class CycleWindows
                 restack.Stop();
                 RaiseScratchpad();
             };
+        }
+
+        private void FindZebar()
+        {
+            zebar = FindZebarOnMonitor(display);
+            zebarWasTopmost = zebar != IntPtr.Zero && (GetWindowStyle(zebar, -20) & 0x00000008) != 0;
+        }
+
+        private static Bitmap CaptureWorkspaceBackdrop(Rectangle bounds, Rectangle[] frames)
+        {
+            var backdrop = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppPArgb);
+            try
+            {
+                using (var graphics = Graphics.FromImage(backdrop))
+                {
+                    graphics.Clear(Color.FromArgb(140, Color.Black));
+                    if (frames.Length != 0)
+                    {
+                        var area = frames.Aggregate(Rectangle.Union);
+                        using (var capture = new Bitmap(area.Width, area.Height, PixelFormat.Format24bppRgb))
+                        {
+                            using (var captureGraphics = Graphics.FromImage(capture))
+                            using (var dim = new SolidBrush(Color.FromArgb(140, Color.Black)))
+                            {
+                                captureGraphics.CopyFromScreen(bounds.X + area.X, bounds.Y + area.Y, 0, 0, area.Size);
+                                captureGraphics.FillRectangle(dim, 0, 0, area.Width, area.Height);
+                            }
+
+                            graphics.CompositingMode = CompositingMode.SourceCopy;
+                            foreach (var frame in frames)
+                            {
+                                var source = frame;
+                                source.Offset(-area.X, -area.Y);
+                                graphics.DrawImage(capture, frame, source, GraphicsUnit.Pixel);
+                            }
+                        }
+                    }
+                }
+                return backdrop;
+            }
+            catch
+            {
+                backdrop.Dispose();
+                throw;
+            }
+        }
+
+        public void PresentWorkspaceBackdrop()
+        {
+            if (!compositeBackdrop) return;
+            if (scratchWindows.Length != 0)
+            {
+                PresentLayeredBitmap(Handle, Bounds, snapshot);
+                return;
+            }
+
+            using (var empty = (Bitmap)snapshot.Clone())
+            {
+                using (var graphics = Graphics.FromImage(empty))
+                using (var layout = new StringFormat { Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center })
+                    graphics.DrawString(EmptyWorkspaceText(), Font, Brushes.White, ClientRectangle, layout);
+                PresentLayeredBitmap(Handle, Bounds, empty);
+            }
         }
 
         public void TrackScratchpadWindows(string name, List<Dictionary<string, object>> windows)
@@ -767,7 +1022,13 @@ internal static partial class CycleWindows
                 (temporarilyRaised.Contains(window) || (GetWindowStyle(window, -20) & 0x00000008) == 0)).ToArray();
             workspaceName = name;
             scratchWindows = handles;
-            if (wasEmpty || scratchWindows.Length == 0) Invalidate();
+            if (wasEmpty || scratchWindows.Length == 0)
+            {
+                if (compositeBackdrop && IsHandleCreated)
+                    PresentWorkspaceBackdrop();
+                else
+                    Invalidate();
+            }
         }
 
         private void ReleaseTemporaryStack()
@@ -807,6 +1068,7 @@ internal static partial class CycleWindows
         private void RaiseScratchpad()
         {
             if (IsDisposed || !IsHandleCreated) return;
+            if (zebar == IntPtr.Zero || !IsWindow(zebar)) FindZebar();
 
             var topmost = new IntPtr(-1);
             const uint reorderOnly = 0x0013; // No move, size, or activation.
@@ -815,8 +1077,9 @@ internal static partial class CycleWindows
             // without asking the standard-user helper to move Task Manager itself.
             var anchor = taskManager != IntPtr.Zero && IsWindow(taskManager) &&
                 (GetWindowStyle(taskManager, -20) & 0x00000008) != 0 ? taskManager : topmost;
-            var layers = scratchWindows.Where(window => window != taskManager && IsWindow(window))
-                .OrderByDescending(window => window == focused)
+            var layers = new[] { zebar }.Where(window => window != IntPtr.Zero)
+                .Concat(scratchWindows.Where(window => window != taskManager && IsWindow(window))
+                    .OrderByDescending(window => window == focused))
                 .Concat(new[] { Handle }).ToArray();
             var batch = BeginDeferWindowPos(layers.Length);
             var insertAfter = anchor;
@@ -838,6 +1101,8 @@ internal static partial class CycleWindows
             {
                 restack.Dispose();
                 ReleaseTemporaryStack();
+                if (zebar != IntPtr.Zero && !zebarWasTopmost && IsWindow(zebar))
+                    SetWindowPos(zebar, new IntPtr(-2), 0, 0, 0, 0, 0x0013);
                 if (snapshot != null) snapshot.Dispose();
             }
             base.Dispose(disposing);
@@ -846,13 +1111,18 @@ internal static partial class CycleWindows
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            e.Graphics.DrawImageUnscaled(snapshot, 0, 0);
+            if (compositeBackdrop) return;
+            if (snapshot != null) e.Graphics.DrawImageUnscaled(snapshot, 0, 0);
             if (scratchWindows.Length != 0) return;
 
-            TextRenderer.DrawText(e.Graphics,
-                workspaceName + " is empty\nAlt+" + workspaceName + " to close",
+            TextRenderer.DrawText(e.Graphics, EmptyWorkspaceText(),
                 Font, ClientRectangle, Color.White,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+
+        private string EmptyWorkspaceText()
+        {
+            return workspaceName + " is empty\nAlt+" + workspaceName + " to close";
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
@@ -863,6 +1133,7 @@ internal static partial class CycleWindows
             {
                 var parameters = base.CreateParams;
                 parameters.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE. The backdrop still intercepts mouse input.
+                if (compositeBackdrop) parameters.ExStyle |= 0x00080000; // WS_EX_LAYERED.
                 return parameters;
             }
         }
