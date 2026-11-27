@@ -1,4 +1,5 @@
-// Build with .NET Framework csc.exe /target:winexe /reference:System.Web.Extensions.dll cycle-windows.cs.
+// Build with .NET Framework csc.exe /target:winexe /reference:System.Web.Extensions.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll cycle-windows.cs scratchpad.cs.
+// Use /out:scratchpad-host.exe to build the resident scratchpad helper from the same sources.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,11 +10,12 @@ using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 
-internal static class CycleWindows
+internal static partial class CycleWindows
 {
     private const string RecentOnMonitor = "--recent-on-monitor";
     private const string MoveToOtherMonitor = "--move-to-other-monitor";
     private const string FocusPrefix = "--focus-";
+    private const string LetterWorkspaces = "WSDIO";
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point
@@ -24,6 +26,12 @@ internal static class CycleWindows
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int key);
+
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte key, byte scanCode, uint flags, UIntPtr extraInfo);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr window, StringBuilder className, int length);
@@ -46,16 +54,35 @@ internal static class CycleWindows
         public int Bottom;
     }
 
+    [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length == 0 && SignalScratchpadCycle()) return 0;
+
+        if (args.Length == 1)
+        {
+            if (args[0] == "--scratchpad-listen") return RunScratchpadHotkeys();
+            if (args[0] == "--scratchpad-stop") return StopScratchpadHotkeys();
+            if (args[0] == "--scratchpad") return RunScratchpad();
+            if (args[0] == "--stash") return StashSpecialWorkspace(ScratchpadWorkspace);
+            if (args[0] == RecentOnMonitor) return SwitchRecentWorkspace();
+        }
+        if (args.Length == 2 && IsSpecialWorkspace(args[1]))
+        {
+            if (args[0] == "--special") return RunScratchpad(args[1]);
+            if (args[0] == "--stash") return StashSpecialWorkspace(args[1]);
+        }
+
         var bringWorkspace = args.Length == 2 && args[0] == "--bring" &&
-            args[1].Length == 1 && "WASDIO".Contains(args[1]);
+            IsWorkspaceName(args[1]);
+        var workspaceMoveDirection = args.Length == 2 && args[0] == MoveToOtherMonitor &&
+            new[] { "left", "right" }.Contains(args[1]) ? args[1] : null;
         var focusDirection = args.Length == 1 && args[0].StartsWith(FocusPrefix, StringComparison.Ordinal)
             ? args[0].Substring(FocusPrefix.Length) : null;
-        if ((args.Length > 1 && !bringWorkspace) || (args.Length == 1 &&
-            args[0] != RecentOnMonitor && args[0] != MoveToOtherMonitor &&
+        if ((args.Length > 1 && !bringWorkspace && workspaceMoveDirection == null) || (args.Length == 1 &&
+            args[0] != MoveToOtherMonitor &&
             !(focusDirection != null && new[] { "left", "down", "up", "right" }.Contains(focusDirection)) &&
-            !System.Text.RegularExpressions.Regex.IsMatch(args[0], @"\A(?:[1-9]|10|[WASDIO])\z")))
+            !IsWorkspaceName(args[0])))
             return 2;
 
         var destination = args.Length == 1 ? args[0] : null;
@@ -70,12 +97,12 @@ internal static class CycleWindows
                     BringWorkspace(socket, token, args[1]);
                 else if (focusDirection != null)
                     FocusDirection(socket, token, focusDirection);
-                else if (destination == RecentOnMonitor)
-                    FocusRecentOnMonitor(socket, token);
-                else if (destination == MoveToOtherMonitor)
-                    MoveWorkspaceToOtherMonitor(socket, token);
+                else if (destination == MoveToOtherMonitor || workspaceMoveDirection != null)
+                    MoveWorkspaceToOtherMonitor(socket, token, workspaceMoveDirection);
                 else
                     HandleWorkspaceWindows(socket, token, destination);
+                if (args.Length == 0 || bringWorkspace)
+                    ReassertHeldAlt();
                 socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "", token).GetAwaiter().GetResult();
             }
 
@@ -86,6 +113,18 @@ internal static class CycleWindows
             Console.Error.WriteLine(error.Message);
             return 1;
         }
+    }
+
+    private static void ReassertHeldAlt()
+    {
+        const byte leftAlt = 0xA4, rightAlt = 0xA5;
+        const uint extendedKey = 0x0001;
+        // AltSnap can disarm on the workspace key even though Windows still sees Alt held.
+        // A repeated down event rearms it, and the physical release still ends the hold.
+        if (GetAsyncKeyState(leftAlt) < 0)
+            keybd_event(leftAlt, 0x38, 0, UIntPtr.Zero);
+        else if (GetAsyncKeyState(rightAlt) < 0)
+            keybd_event(rightAlt, 0x38, extendedKey, UIntPtr.Zero);
     }
 
     private static void FocusDirection(ClientWebSocket socket, CancellationToken token, string direction)
@@ -109,7 +148,8 @@ internal static class CycleWindows
                 bounds.Top + (bounds.Bottom - bounds.Top) / 2);
     }
 
-    private static void MoveWorkspaceToOtherMonitor(ClientWebSocket socket, CancellationToken token)
+    private static void MoveWorkspaceToOtherMonitor(ClientWebSocket socket, CancellationToken token,
+        string requestedDirection)
     {
         var data = (Dictionary<string, object>)Request(socket, token, "query monitors")["data"];
         var monitors = ((object[])data["monitors"]).Cast<Dictionary<string, object>>().ToArray();
@@ -117,23 +157,41 @@ internal static class CycleWindows
         if (sourceIndex < 0) return;
 
         var source = monitors[sourceIndex];
+        var displayed = ((object[])source["children"]).Cast<Dictionary<string, object>>()
+            .FirstOrDefault(workspace => Equals(workspace["isDisplayed"], true));
+        if (displayed == null || Equals(displayed["name"], "G")) return;
+        var moveCommand = "command --id " + Guid.Parse((string)displayed["id"]) + " move-workspace --direction ";
+
+        if (requestedDirection != null)
+        {
+            Request(socket, token, moveCommand + requestedDirection);
+            return;
+        }
+
         for (var offset = 1; offset < monitors.Length; offset++)
         {
             var target = monitors[(sourceIndex + offset) % monitors.Length];
             var direction = DirectionToMonitor(monitors, source, target);
             if (direction == null) continue;
 
-            Request(socket, token, "command move-workspace --direction " + direction);
+            Request(socket, token, moveCommand + direction);
             return;
         }
     }
 
-    private static void BringWorkspace(ClientWebSocket socket, CancellationToken token, string name)
+    private static void BringWorkspace(ClientWebSocket socket, CancellationToken token, string name,
+        Dictionary<string, object>[] monitors = null)
     {
-        var data = (Dictionary<string, object>)Request(socket, token, "query monitors")["data"];
-        var monitors = ((object[])data["monitors"]).Cast<Dictionary<string, object>>().ToArray();
+        if (name == "G")
+        {
+            Request(socket, token, "command focus --workspace G");
+            return;
+        }
+
+        var useFocusedDisplay = monitors != null;
+        monitors = monitors ?? ScratchpadMonitors(socket, token);
         var focused = Array.Find(monitors, monitor => Equals(monitor["hasFocus"], true));
-        var target = EmptyDesktopMonitor(monitors) ?? focused;
+        var target = useFocusedDisplay ? focused : EmptyDesktopMonitor(monitors) ?? focused;
         if (target == null) return;
 
         var current = ((object[])target["children"]).Cast<Dictionary<string, object>>()
@@ -141,12 +199,15 @@ internal static class CycleWindows
         var currentName = (string)current["name"];
         if (target != focused)
             Request(socket, token, "command focus --workspace " + currentName);
+        var toggleOnRefocus = !IsReturnWorkspace(name) && name != ScratchpadWorkspace;
         var stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "GlazeWM-shortcuts");
         var statePath = Path.Combine(stateDirectory, Path.GetFileName((string)target["deviceName"]) + "-numbered.txt");
 
         if (currentName == name)
         {
+            if (!toggleOnRefocus) return;
+
             var origin = File.Exists(statePath) ? File.ReadAllText(statePath) : null;
             if (origin == name || !IsReturnWorkspace(origin) || monitors.Any(monitor => monitor != target &&
                 ((object[])monitor["children"]).Cast<Dictionary<string, object>>()
@@ -178,7 +239,7 @@ internal static class CycleWindows
         }
 
         Request(socket, token, "command focus --workspace " + name);
-        if (IsReturnWorkspace(currentName))
+        if (toggleOnRefocus && IsReturnWorkspace(currentName))
         {
             Directory.CreateDirectory(stateDirectory);
             File.WriteAllText(statePath, currentName);
@@ -213,10 +274,15 @@ internal static class CycleWindows
         return null;
     }
 
+    private static bool IsWorkspaceName(string name)
+    {
+        return IsReturnWorkspace(name) || (name.Length == 1 && LetterWorkspaces.Contains(name));
+    }
+
     private static bool IsReturnWorkspace(string name)
     {
         int number;
-        return name == "A" ||
+        return name == "G" ||
             (int.TryParse(name, out number) && number >= 1 && number <= 10 && name == number.ToString());
     }
 
@@ -267,27 +333,47 @@ internal static class CycleWindows
         }
     }
 
-    private static void FocusRecentOnMonitor(ClientWebSocket socket, CancellationToken token)
+    private static int SwitchRecentWorkspace()
+    {
+        try
+        {
+            if (CloseBackdropOnForegroundMonitor()) return 0;
+            string special = null;
+            WithScratchpadConnection((socket, token) => special = FocusRecentOnMonitor(socket, token, true));
+            return special == null ? 0 : OpenRecentSpecialWorkspace(special);
+        }
+        catch (Exception error) { return LogScratchpadError(error); }
+        finally { ReassertHeldAlt(); }
+    }
+
+    private static string FocusRecentOnMonitor(ClientWebSocket socket, CancellationToken token,
+        bool useSpecialOverlay = false)
     {
         var data = (Dictionary<string, object>)Request(socket, token, "query monitors")["data"];
         foreach (Dictionary<string, object> monitor in (object[])data["monitors"])
         {
             if (!Equals(monitor["hasFocus"], true)) continue;
+            var showOverlay = useSpecialOverlay && IsOverlayMonitor(monitor);
+            if (showOverlay && RequestBackdropClose()) return null;
 
-            // The first entry is the workspace already displayed on this monitor.
-            var order = (object[])monitor["childFocusOrder"];
-            if (order.Length < 2) return;
-
-            foreach (Dictionary<string, object> workspace in (object[])monitor["children"])
+            var workspaces = ((object[])monitor["children"]).Cast<Dictionary<string, object>>()
+                .ToDictionary(workspace => (string)workspace["id"]);
+            foreach (string id in (object[])monitor["childFocusOrder"])
             {
-                if (!Equals(workspace["id"], order[1])) continue;
+                Dictionary<string, object> workspace;
+                if (!workspaces.TryGetValue(id, out workspace) ||
+                    Equals(workspace["isDisplayed"], true)) continue;
 
+                var name = (string)workspace["name"];
+                if (!useSpecialOverlay && IsSpecialWorkspace(name)) continue;
+                if (showOverlay && IsSpecialWorkspace(name)) return name;
                 // Workspace focus redraws both workspaces, updating their native visibility.
-                Request(socket, token, "command focus --workspace " + (string)workspace["name"]);
+                Request(socket, token, "command focus --workspace " + name);
                 break;
             }
-            return;
+            return null;
         }
+        return null;
     }
 
     private static void MoveWindows(ClientWebSocket socket, CancellationToken token,

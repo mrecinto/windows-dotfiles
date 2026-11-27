@@ -24,11 +24,19 @@
         "shellCommands": [
           {
             "program": "powershell.exe",
+            "argsRegex": "^-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File C:\\\\Users\\\\Matthew\\\\Personal\\\\dotfiles\\\\\\.config\\\\zebar\\\\theme\\.ps1(?: -Toggle)?$"
+          },
+          {
+            "program": "powershell.exe",
             "argsRegex": "^-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File C:\\\\Users\\\\Matthew\\\\Personal\\\\dotfiles\\\\\\.config\\\\zebar\\\\wallpaper\\.ps1$"
           },
           {
             "program": "C:\\Users\\Matthew\\Personal\\dotfiles\\.config\\zebar\\watch-virtual-desktop.exe",
             "argsRegex": "^$"
+          },
+          {
+            "program": "C:\\Users\\Matthew\\Personal\\dotfiles\\.config\\zebar\\hide-bar.exe",
+            "argsRegex": "^--watch -?[0-9]+ -?[0-9]+$"
           }
         ]
       },
