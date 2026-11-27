@@ -1,18 +1,19 @@
 general:
   # Commands to run when the WM has started. This is useful for running a
   # script or launching another application.
-  # Example: The below command launches Zebar.
-  startup_commands: []
+  # The resident host handles Alt+Tab and Alt+W/A/S/D/I/O without launching a process.
+  # Keep its GlazeWmAltLetters list in sync when adding plain Alt+letter bindings.
+  startup_commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/scratchpad-host.exe --scratchpad-listen']
 
   # Commands to run just before the WM is shutdown.
   # Example: The below command kills Zebar.
-  shutdown_commands: []
+  shutdown_commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/scratchpad-host.exe --scratchpad-stop']
 
   # Commands to run after the WM config is reloaded.
-  config_reload_commands: []
+  config_reload_commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/scratchpad-host.exe --scratchpad-listen']
 
   # Whether to automatically focus windows underneath the cursor.
-  focus_follows_cursor: false
+  focus_follows_cursor: true
 
   # Whether to switch back and forth between the previously focused
   # workspace when focusing the current workspace.
@@ -133,17 +134,22 @@ workspaces:
   - name: '9'
   - name: '10'
   - name: 'W'
-  - name: 'A'
+  - name: 'G'
+    # MSI MAG 272Q X50 is the left-hand display (GlazeWM index 0).
+    bind_to_monitor: 0
   - name: 'S'
   - name: 'D'
   - name: 'I'
   - name: 'O'
+  - name: 'A'
 
 window_rules:
   - commands: ['ignore']
     match:
       # Ignores any Zebar windows.
       - window_process: { equals: 'zebar' }
+      - window_process: { equals: 'cycle-windows' }
+      - window_process: { equals: 'scratchpad-host' }
 
       # Keep VoiceMeeter Banana at its native size.
       - window_process: { equals: 'voicemeeterpro' }
@@ -173,6 +179,8 @@ window_rules:
       - window_process: { equals: 'CleanShot X' }
 
 keybindings:
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/zebar/hide-bar.exe']
+    bindings: ['alt+escape']
   - commands: ['shell-exec wt.exe -w new']
     bindings: ['alt+q']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --focus-left']
@@ -191,9 +199,9 @@ keybindings:
     bindings: ['alt+l']
   - commands: ['move --direction right']
     bindings: ['alt+shift+l']
-  - commands: ['move-workspace --direction left']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --move-to-other-monitor left']
     bindings: ['alt+win+h']
-  - commands: ['move-workspace --direction right']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --move-to-other-monitor right']
     bindings: ['alt+win+l']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --move-to-other-monitor']
     bindings: ['alt+shift+m']
@@ -208,73 +216,64 @@ keybindings:
     bindings: ['alt+shift+p']
   - commands: ['toggle-fullscreen']
     bindings: ['alt+f']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --recent-on-monitor']
-    bindings: ['alt+tab']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe']
-    bindings: ['alt+oem_tilde']
-  - commands: ['focus --workspace 1']
+    bindings: ['alt+e']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --stash A']
+    bindings: ['alt+shift+a', 'alt+control+shift+a']
+  # Bring the selected workspace to the current monitor and focus it.
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 1']
     bindings: ['alt+1']
   - commands: ['move --workspace 1']
     bindings: ['alt+shift+1']
-  - commands: ['focus --workspace 2']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 2']
     bindings: ['alt+2']
   - commands: ['move --workspace 2']
     bindings: ['alt+shift+2']
-  - commands: ['focus --workspace 3']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 3']
     bindings: ['alt+3']
   - commands: ['move --workspace 3']
     bindings: ['alt+shift+3']
-  - commands: ['focus --workspace 4']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 4']
     bindings: ['alt+4']
   - commands: ['move --workspace 4']
     bindings: ['alt+shift+4']
-  - commands: ['focus --workspace 5']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 5']
     bindings: ['alt+5']
   - commands: ['move --workspace 5']
     bindings: ['alt+shift+5']
-  - commands: ['focus --workspace 6']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 6']
     bindings: ['alt+6']
   - commands: ['move --workspace 6']
     bindings: ['alt+shift+6']
-  - commands: ['focus --workspace 7']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 7']
     bindings: ['alt+7']
   - commands: ['move --workspace 7']
     bindings: ['alt+shift+7']
-  - commands: ['focus --workspace 8']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 8']
     bindings: ['alt+8']
   - commands: ['move --workspace 8']
     bindings: ['alt+shift+8']
-  - commands: ['focus --workspace 9']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 9']
     bindings: ['alt+9']
   - commands: ['move --workspace 9']
     bindings: ['alt+shift+9']
-  - commands: ['focus --workspace 10']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring 10']
     bindings: ['alt+0']
   - commands: ['move --workspace 10']
     bindings: ['alt+shift+0']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring W']
-    bindings: ['alt+w']
-  - commands: ['move --workspace W']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --stash W']
     bindings: ['alt+shift+w']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring A']
-    bindings: ['alt+a']
-  - commands: ['move --workspace A']
-    bindings: ['alt+shift+a']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring S']
-    bindings: ['alt+s']
-  - commands: ['move --workspace S']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring G']
+    bindings: ['alt+oem_tilde']
+  - commands: ['move --workspace G']
+    bindings: ['alt+shift+oem_tilde']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --stash S']
     bindings: ['alt+shift+s']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring D']
-    bindings: ['alt+d']
-  - commands: ['move --workspace D']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --stash D']
     bindings: ['alt+shift+d']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring I']
-    bindings: ['alt+i']
-  - commands: ['move --workspace I']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --stash I']
     bindings: ['alt+shift+i']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --bring O']
-    bindings: ['alt+o']
-  - commands: ['move --workspace O']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --stash O']
     bindings: ['alt+shift+o']
 
   # Move every window from the current workspace and follow it.
@@ -300,7 +299,7 @@ keybindings:
     bindings: ['alt+control+0']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe W']
     bindings: ['alt+control+w']
-  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe A']
+  - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe G']
     bindings: ['alt+control+a']
   - commands: ['shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe S']
     bindings: ['alt+control+s']

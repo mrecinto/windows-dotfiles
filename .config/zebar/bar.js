@@ -28,12 +28,15 @@ document.addEventListener('click', event => {
   if (!specialToggle.contains(event.target) && !specialMenu.contains(event.target)) showSpecial(false);
 });
 
-function makeButton(name, parent) {
+function makeButton(name, parent, label = name) {
   const button = document.createElement('button');
-  button.textContent = name;
+  button.textContent = label;
   button.setAttribute('aria-label', `Workspace ${name}`);
   button.addEventListener('click', () => {
-    providers.outputMap.glazewm?.runCommand(`focus --workspace ${name}`);
+    const command = special.includes(name)
+      ? `shell-exec C:/Users/Matthew/Personal/dotfiles/.config/glazewm/cycle-windows.exe --special ${name}`
+      : `focus --workspace ${name}`;
+    providers.outputMap.glazewm?.runCommand(command);
     showSpecial(false);
   });
   parent.append(button);
@@ -41,6 +44,7 @@ function makeButton(name, parent) {
 }
 
 const buttons = new Map([
+  ['G', makeButton('G', get('workspaces'), '0')],
   ...numbered.map(name => [name, makeButton(name, get('workspaces'))]),
   ...special.map(name => [name, makeButton(name, specialMenu)]),
 ]);
@@ -113,6 +117,39 @@ function updateClock() {
 
 const paletteKeys = ['background', 'on_background', 'primary', 'on_primary', 'surface_variant', 'surface_tint', 'error'];
 const script = 'C:\\Users\\Matthew\\Personal\\dotfiles\\.config\\zebar\\wallpaper.ps1';
+const themeScript = script.replace(/wallpaper\.ps1$/, 'theme.ps1');
+const themeToggle = get('theme-toggle');
+let themeRequestPending = false;
+
+async function updateTheme(toggle = false) {
+  if (themeRequestPending) return;
+  themeRequestPending = true;
+  if (toggle) themeToggle.disabled = true;
+  try {
+    const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File', themeScript];
+    if (toggle) args.push('-Toggle');
+    const { stdout, stderr } = await zebar.shellExec('powershell.exe', args);
+    const mode = stdout.trim();
+    if (mode !== 'light' && mode !== 'dark') throw new Error(stderr.trim() || 'Unknown Windows theme');
+    const dark = mode === 'dark';
+    const label = dark ? 'Switch Windows to light mode' : 'Switch Windows to dark mode';
+    themeToggle.textContent = dark ? '☀' : '☾';
+    themeToggle.title = label;
+    themeToggle.setAttribute('aria-label', label);
+    themeToggle.disabled = false;
+  } catch (error) {
+    themeToggle.title = 'Could not read or change the Windows theme';
+    if (toggle) themeToggle.disabled = false;
+    console.warn('Windows theme:', error);
+  } finally {
+    themeRequestPending = false;
+  }
+}
+
+themeToggle.addEventListener('click', () => void updateTheme(true));
+void updateTheme();
+window.setInterval(updateTheme, 10000);
+
 let latestPalette = '';
 
 async function updatePalette() {
@@ -178,9 +215,30 @@ async function followVirtualDesktop() {
   }, { once: true });
 }
 
+async function watchAutoHide() {
+  const widget = zebar.currentWidget();
+  if (widget.isPreview) return;
+  const { x, y } = await widget.tauriWindow.outerPosition();
+  const watcher = await zebar.shellSpawn(
+    'C:\\Users\\Matthew\\Personal\\dotfiles\\.config\\zebar\\hide-bar.exe',
+    ['--watch', String(x + 1), String(y + 1)],
+  );
+  const bar = document.querySelector('.bar');
+  function setState(state) {
+    const concealed = state === 'conceal';
+    if (concealed) showSpecial(false);
+    bar.classList.toggle('auto-hide', state !== 'pin');
+    bar.classList.toggle('concealed', concealed);
+    bar.inert = concealed;
+  }
+  watcher.onStdout(line => setState(line.trim()));
+  watcher.onExit(() => setState('pin'));
+}
+
 providers.onOutput(render);
 render();
 updateClock();
 window.setInterval(updateClock, 1000);
 void updatePalette();
 void followVirtualDesktop().catch(error => console.warn('Virtual desktop watcher:', error));
+void watchAutoHide().catch(error => console.warn('Zebar auto-hide:', error));

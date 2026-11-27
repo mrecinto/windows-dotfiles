@@ -5,5 +5,7 @@
 /.config/gh/hosts.yml
 /.config/ubuntu-insights
 /.config/glazewm/cycle-windows.exe
+/.config/glazewm/scratchpad-host.exe
 /.config/glazewm/errors.log
 /.config/zebar/watch-virtual-desktop.exe
+/.config/zebar/hide-bar.exe
