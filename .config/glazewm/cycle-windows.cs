@@ -1,4 +1,4 @@
-// Build with .NET Framework csc.exe /target:winexe /reference:System.Web.Extensions.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll cycle-windows.cs scratchpad.cs.
+// Build with .NET Framework csc.exe /target:winexe /reference:System.Web.Extensions.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll cycle-windows.cs scratchpad.cs gaming-workspace.cs.
 // Use /out:scratchpad-host.exe to build the resident scratchpad helper from the same sources.
 using System;
 using System.Collections.Generic;
@@ -8,6 +8,7 @@ using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
 internal static partial class CycleWindows
@@ -184,7 +185,9 @@ internal static partial class CycleWindows
     {
         if (name == "G")
         {
+            var alreadyFocused = FocusedGamingMonitor(socket, token);
             Request(socket, token, "command focus --workspace G");
+            if (alreadyFocused != null && !RequestGamingRefocus()) FocusGameOnMonitor(alreadyFocused);
             return;
         }
 
@@ -416,22 +419,29 @@ internal static partial class CycleWindows
         var request = new ArraySegment<byte>(Encoding.UTF8.GetBytes(command));
         socket.SendAsync(request, WebSocketMessageType.Text, true, token).GetAwaiter().GetResult();
 
+        var result = ReadGlazeMessage(socket, token).GetAwaiter().GetResult();
+        if (result == null) throw new IOException("GlazeWM closed the connection.");
+        if (!Equals(result["success"], true)) throw new InvalidOperationException((string)result["error"]);
+        return result;
+    }
+
+    private static async Task<Dictionary<string, object>> ReadGlazeMessage(ClientWebSocket socket,
+        CancellationToken token)
+    {
         var buffer = new ArraySegment<byte>(new byte[8192]);
         using (var message = new MemoryStream())
         {
             WebSocketReceiveResult response;
             do
             {
-                response = socket.ReceiveAsync(buffer, token).GetAwaiter().GetResult();
-                if (response.MessageType != WebSocketMessageType.Text) throw new IOException("GlazeWM closed the connection.");
+                response = await socket.ReceiveAsync(buffer, token).ConfigureAwait(false);
+                if (response.MessageType != WebSocketMessageType.Text) return null;
                 message.Write(buffer.Array, buffer.Offset, response.Count);
             }
             while (!response.EndOfMessage);
 
             var json = Encoding.UTF8.GetString(message.ToArray());
-            var result = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
-            if (!Equals(result["success"], true)) throw new InvalidOperationException((string)result["error"]);
-            return result;
+            return new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
         }
     }
 }

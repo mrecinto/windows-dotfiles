@@ -137,6 +137,7 @@ workspaces:
   - name: 'G'
     # MSI MAG 272Q X50 is the left-hand display (GlazeWM index 0).
     bind_to_monitor: 0
+    keep_alive: true
   - name: 'S'
   - name: 'D'
   - name: 'I'
